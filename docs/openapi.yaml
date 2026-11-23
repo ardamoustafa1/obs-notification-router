@@ -1,0 +1,98 @@
+openapi: 3.1.0
+info:
+  title: Observability Notification Router API
+  version: 1.0.0
+servers: [{url: https://notification-router.obs.acme.com}]
+paths:
+  /v1/webhooks/alertmanager:
+    post:
+      summary: Receive an Alertmanager generic webhook v4 payload
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AlertmanagerWebhook'}
+      responses:
+        '202': {description: Persisted for asynchronous delivery}
+        '401': {description: Invalid webhook token}
+        '422': {description: Unsupported webhook version}
+  /v1/mutes:
+    post:
+      summary: Create a team-owned Alertmanager silence
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [service, for, reason]
+              properties:
+                service: {type: string, minLength: 1}
+                for: {type: string, pattern: '^[0-9]+(m|h)$', examples: [2h]}
+                reason: {type: string, minLength: 1}
+      responses:
+        '201': {description: Silence created}
+        '403': {description: Service is not owned by the caller's team}
+  /v1/acknowledgements:
+    post:
+      summary: Acknowledge a page and stop pending escalation
+      security: [{bearerAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [event_key]
+              properties:
+                event_key: {type: string}
+                actor: {type: string}
+      responses:
+        '200': {description: Acknowledged and PagerDuty acknowledgement queued}
+        '409': {description: Not in an acknowledgeable state}
+  /v1/slack/commands:
+    post:
+      summary: Slack slash-command endpoint
+      responses: {'200': {description: Ephemeral Slack response}}
+  /v1/slack/interactions:
+    post:
+      summary: Slack acknowledgement-button endpoint
+      responses: {'200': {description: Acknowledged}}
+  /healthz:
+    get: {responses: {'200': {description: Process is alive}}}
+  /readyz:
+    get: {responses: {'200': {description: PostgreSQL is reachable}, '503': {description: Not ready}}}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+  schemas:
+    AlertmanagerWebhook:
+      type: object
+      required: [version, status, alerts]
+      properties:
+        version: {const: '4'}
+        groupKey: {type: string}
+        status: {enum: [firing, resolved]}
+        receiver: {type: string}
+        externalURL: {type: string, format: uri}
+        groupLabels: {type: object, additionalProperties: {type: string}}
+        commonLabels: {type: object, additionalProperties: {type: string}}
+        commonAnnotations: {type: object, additionalProperties: {type: string}}
+        alerts:
+          type: array
+          items:
+            type: object
+            required: [status, labels, annotations, startsAt, fingerprint]
+            properties:
+              status: {enum: [firing, resolved]}
+              labels: {type: object, additionalProperties: {type: string}}
+              annotations: {type: object, additionalProperties: {type: string}}
+              startsAt: {type: string, format: date-time}
+              endsAt: {type: string, format: date-time}
+              generatorURL: {type: string, format: uri}
+              fingerprint: {type: string}
+

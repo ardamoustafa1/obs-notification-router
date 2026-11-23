@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: obs-notification-router
+  namespace: observability
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: obs-notification-router
+  namespace: observability
+  labels: {app.kubernetes.io/name: obs-notification-router}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: obs-notification-router}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: obs-notification-router}
+    spec:
+      serviceAccountName: obs-notification-router
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: router
+          image: ghcr.io/acme/obs-notification-router:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8080}]
+          envFrom: [{secretRef: {name: obs-notification-router}}]
+          env:
+            - {name: HTTP_ADDRESS, value: ":8080"}
+            - {name: CATALOG_URL, value: "http://obs-onboarding-controller.observability.svc.cluster.local:8080"}
+            - {name: ALERTMANAGER_URL, value: "http://alertmanager-operated.observability.svc.cluster.local:9093"}
+            - {name: FALLBACK_SLACK_CHANNEL, value: "#platform-alerts"}
+            - {name: FALLBACK_PAGERDUTY_SERVICE, value: "platform-oncall"}
+            - {name: ESCALATION_AFTER, value: "5m"}
+            - {name: RATE_LIMIT_PER_MINUTE, value: "60"}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          readinessProbe: {httpGet: {path: /readyz, port: http}, initialDelaySeconds: 3, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 10, periodSeconds: 10}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: {matchLabels: {app.kubernetes.io/name: obs-notification-router}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: obs-notification-router, namespace: observability}
+spec:
+  selector: {app.kubernetes.io/name: obs-notification-router}
+  ports: [{name: http, port: 8080, targetPort: http}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: obs-notification-router, namespace: observability}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: obs-notification-router}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: obs-notification-router, namespace: observability}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: obs-notification-router}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}
+      ports: [{protocol: TCP, port: 8080}]
+    - from:
+        - namespaceSelector: {matchLabels: {networking.acme.com/ingress: "true"}}
+      ports: [{protocol: TCP, port: 8080}]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: observability}}
+      ports: [{protocol: TCP, port: 8080}, {protocol: TCP, port: 9093}, {protocol: TCP, port: 5432}]
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0, except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]}
+      ports: [{protocol: TCP, port: 443}]

@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1.7
+FROM golang:1.24.7-alpine3.22 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/router ./cmd/router
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/router /router
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/router"]
+

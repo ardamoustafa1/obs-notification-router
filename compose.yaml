@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:17.6-alpine3.22
+    environment:
+      POSTGRES_DB: router
+      POSTGRES_USER: router
+      POSTGRES_PASSWORD: router
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U router"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    volumes: ["router-db:/var/lib/postgresql/data"]
+volumes:
+  router-db: {}
+

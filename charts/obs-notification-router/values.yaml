@@ -1,0 +1,36 @@
+replicaCount: 2
+image:
+  repository: ghcr.io/acme/obs-notification-router
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+# All configuration (DATABASE_URL, ALERTMANAGER_WEBHOOK_TOKEN, SLACK_BOT_TOKEN,
+# SLACK_SIGNING_SECRET, PAGERDUTY_ROUTING_KEYS_JSON, API_TOKENS_JSON,
+# CATALOG_URL, ALERTMANAGER_URL, FALLBACK_SLACK_CHANNEL,
+# FALLBACK_PAGERDUTY_SERVICE, ESCALATION_AFTER, DEDUP_WINDOW,
+# RATE_LIMIT_PER_MINUTE, OPSGENIE_ENABLED -- see .env.example) is injected
+# from this one Secret via envFrom, mirroring the plain .env file teams
+# already use locally so there is exactly one source of truth for what
+# environment variables this service needs.
+existingSecret: obs-notification-router
+
+service:
+  port: 8080
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+serviceAccount:
+  create: true
+  name: ""
